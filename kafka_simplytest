@@ -1,0 +1,232 @@
+using Confluent.Kafka;
+
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace ConsoleKafkaConsumer
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Console.WriteLine("please input bootstrap servers.例:192.168.100.10");
+
+            //var bootstrapServers = Console.ReadLine();
+            var bootstrapServers = "192.168.100.10";
+
+            // Taskキャンセルトークン
+            var tokenSource = new CancellationTokenSource();
+
+            Console.WriteLine($"start .Net Kafka Example. Ctl+C to exit");
+
+            // プロデューサータスク
+           // var pTask = Task.Run(() => new Action<string, CancellationToken>(async (bs, cancel) =>
+            //{
+                var cf = new Dictionary<string, object> {
+                    { "bootstrap.servers", bootstrapServers }
+                };
+
+                var producerConfig = new Dictionary<string, string> { { "bootstrap.servers", bootstrapServers } };
+
+                using (var producer = new ProducerBuilder<Null, string>(producerConfig)
+                    .SetKeySerializer(Serializers.Null)
+                    .SetValueSerializer(Serializers.Utf8)
+                    .Build())
+                {
+                    // Send 10 messages to the topic
+                    for (int i = 0; i < 10; i++)
+                    {
+                        var message = $"Event {i}";
+                        var result = producer.ProduceAsync("test.C", new Message<Null, string> { Value = message }).GetAwaiter().GetResult();
+                        Console.WriteLine($"Event {i} sent on Partition: {result.Partition} with Offset: {result.Offset}");
+                    }
+                }
+                Console.WriteLine("producer end");
+            /*
+            using (var producer = new Producer<string, string>(cf, new StringSerializer(Encoding.UTF8), new StringSerializer(Encoding.UTF8)))
+            {
+                producer.OnError += (_, error) => Console.WriteLine($"fail send. reason: {error.Reason}");
+
+                while (true)
+                {
+                    if (cancel.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
+                    var timestamp = DateTime.UtcNow.ToBinary();
+
+                    var pa = producer.ProduceAsync("test.C", timestamp.ToString(), JsonConvert.SerializeObject(new SendMessage
+                    {
+                        Message = "Hello",
+                        Timestamp = timestamp
+                    }));
+
+                    await pa.ContinueWith(t => Console.WriteLine($"success send. message: {t.Result.Value}"));
+                    await Task.Delay(10000);
+                }
+
+                // 停止前処理
+                producer.Flush(TimeSpan.FromMilliseconds(10000));
+            }
+            */
+            //})(bootstrapServers, tokenSource.Token), tokenSource.Token);
+
+            // コンシューマータスク
+            // var cTask = Task.Run(() => new Action<string, CancellationToken>((bs, cancel) =>
+            // {
+            /*
+            var cf = new Dictionary<string, object> {
+                { "bootstrap.servers", bs },
+                { "group.id", "test" },
+                { "enable.auto.commit", false },
+                { "default.topic.config", new Dictionary<string, object>()
+                    {
+                        { "auto.offset.reset", "earliest" }
+                    }
+                }
+            };
+            */
+
+            Console.WriteLine("consumer stt");
+            var conf = new ConsumerConfig
+                {
+                    GroupId = "test",
+                    EnableAutoCommit = false,
+                    BootstrapServers = bootstrapServers,
+                    AutoOffsetReset = AutoOffsetReset.Earliest
+                };
+
+                using (var c = new ConsumerBuilder<Ignore, string>(conf).Build())
+                {
+                    c.Subscribe("test-topic");
+
+                    CancellationTokenSource cts = new CancellationTokenSource();
+                    Console.CancelKeyPress += (_, e) => {
+                        e.Cancel = true; // prevent the process from terminating.
+                        cts.Cancel();
+                    };
+
+                    try
+                    {
+                        while (true)
+                        {
+                            try
+                            {
+                                var cr = c.Consume(cts.Token);
+                                Console.WriteLine($"Message '{cr.Value}' at: '{cr.TopicPartitionOffset}'.");
+                            }
+                            catch (ConsumeException e)
+                            {
+                                Console.WriteLine($"Error: {e.Error.Reason}");
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        c.Close();
+                    }
+                }
+            Console.WriteLine("consumer end");
+
+            /*
+            using (var consumer = new Consumer<string, string>(cf, new StringDeserializer(Encoding.UTF8), new StringDeserializer(Encoding.UTF8)))
+            {
+                consumer.OnError += (_, error) => Console.WriteLine($"consumer error. reason: {error.Reason}");
+
+                consumer.OnConsumeError += (_, error) => Console.WriteLine($"fail consume. reason: {error.Error}");
+
+                consumer.OnPartitionsAssigned += (_, partitions) => consumer.Assign(partitions);
+
+                consumer.OnPartitionsRevoked += (_, partitions) => consumer.Unassign();
+
+                consumer.Subscribe("test.C");
+
+                while (true)
+                {
+                    if (cancel.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
+                    Message<string, string> msg;
+                    if (!consumer.Consume(out msg, TimeSpan.FromMilliseconds(100)))
+                    {
+                        continue;
+                    }
+
+                    var cm = JsonConvert.DeserializeObject<ConsumedMessage>(msg.Value);
+                    Console.WriteLine($"success consumed. message: {cm.Message}, timestamp: {cm.Timestamp}");
+
+                    consumer.CommitAsync(msg);
+                }
+            }
+            */
+            // })(bootstrapServers, tokenSource.Token), tokenSource.Token);
+
+            // Ctl+C待機
+            // Console.CancelKeyPress += (_, e) =>
+            //{
+            //   e.Cancel = true;
+            //    tokenSource.Cancel(); // Taskキャンセル
+            //};
+
+            // Task.WaitAll(pTask, cTask);
+
+            Console.WriteLine("stop .Net Kafka Example. press any key to close.");
+
+            Console.ReadKey();
+        }
+    }
+
+    internal class StringDeserializer
+    {
+        private Encoding uTF8;
+
+        public StringDeserializer(Encoding uTF8)
+        {
+            this.uTF8 = uTF8;
+        }
+    }
+    
+    class SendMessage
+    {
+        public string Message { get; set; }
+
+        public long Timestamp { get; set; }
+
+    }
+
+    // 受信メッセージ
+    class ConsumedMessage
+    {
+        public string Message { get; set; }
+
+        public long Timestamp { get; set; }
+
+    }
+
+    public class StringSerializer : IKafkaSerializer<string>
+    {
+        private Encoding uTF8;
+
+        public StringSerializer(Encoding uTF8)
+        {
+            this.uTF8 = uTF8;
+        }
+
+        public string Deserialize(byte[] serialized)
+        {
+            return Encoding.UTF8.GetString(serialized);
+        }
+
+        public byte[] Serialize(string value)
+        {
+            return Encoding.UTF8.GetBytes(value);
+        }
+    }
+}
