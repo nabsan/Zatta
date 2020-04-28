@@ -1,0 +1,59 @@
+#!/bin/sh
+#FOR sample
+#
+#PostgreSQL databse backup script
+#Version 1.1
+#by Sample
+
+
+#*Feature
+#Dump to Database_NAME_YYMMDD.pgdmp
+#Delete expired pgdmp file
+#Output log.
+
+#Setting
+PATH="$PATH":/usr/pgsql-9.1/bin
+PG=/usr/pgsql-9.1
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH":$PG/lib
+export PGLIB=$PG/lib
+export PGDATA=/dbfiles/hoge/data
+
+#echo $PATH
+#echo $PG
+#echo $LD_LIBRARY_PATH
+#echo $PGLIB
+#echo $PGDATA
+
+TARGET_DB=`psql -l -P format=unaligned -P fieldsep=, -P tuples_only|perl -F, -lane "if(@F[0] ne 'template0'  && @F[0] ne 'postgres=CTc/postgres') {print @F[0]}"`
+
+HOMEDIR=/home/postgres
+BACKUPDIR=/backupdisk/data/dbfiles/hoge/
+LOG=$BACKUPDIR/pgdump.log
+EXPIRE_DAY=15
+
+STT=`date +%s`
+echo "[START]"`date +%Y%m%d-%H%M%S` >> $LOG
+echo "pg_dump start." >> $LOG
+date=`date +%Y%m%d`
+
+for db_name in $TARGET_DB
+do
+  DUMPFILE_PATH=$BACKUPDIR/${db_name}_${date}.pgdmp.gz
+  /usr/pgsql-9.1/bin/pg_dump $db_name | /bin/gzip > $DUMPFILE_PATH 2>>$LOG
+  DUMPDDL=$BACKUPDIR/${db_name}_${date}_ddl.pgdmp.gz
+  /usr/pgsql-9.1/bin/pg_dump -s $db_name | /bin/gzip > $DUMPDDL 2>>$LOG
+  echo "Database $db_name backup complete to $DUMPFILE_PATH  "`date +%H%M%S` >> $LOG
+done
+
+echo "pg_dump complete."`date +%H%M%S` >> $LOG
+
+echo "expir_day="$EXPIRE_DAY >>$LOG
+echo "Delete expired pgdump file start."`date +%H%M%S` >> $LOG
+#find $BACKUPDIR -type f -daystart -mtime +$EXPIRE_DAY | xargs /bin/rm -f
+echo "Delete expired pgdump file end  ."`date +%H%M%S` >> $LOG
+
+END=`date +%s`
+SS=`expr ${END} - ${STT}`
+
+echo "[PROCESSED_SEC]"$SS >> $LOG
+echo "[END]"`date +%Y%m%d-%H%M%S` >> $LOG
